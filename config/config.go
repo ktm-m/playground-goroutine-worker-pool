@@ -12,13 +12,13 @@ type Config struct {
 }
 
 type WorkerPool struct {
-	NumWorker     int
-	SleepDuration time.Duration
+	NumWorker          int
+	MaxQueueMultiplier int
+	SleepDuration      time.Duration
 }
 
 func GetConfig() *Config {
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
+	viper.SetConfigFile("config.yaml")
 	viper.AddConfigPath("./config")
 
 	if err := viper.ReadInConfig(); err != nil {

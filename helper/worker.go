@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/samber/lo"
 )
 
 type WorkerPoolPort interface {
@@ -13,15 +15,17 @@ type WorkerPoolPort interface {
 }
 
 var (
-	defaultNumWorker     = 100
-	defaultSleepDuration = 10 * time.Millisecond
+	defaultNumWorker          = 100
+	defaultMaxQueueMultiplier = 10
+	defaultSleepDuration      = 10 * time.Millisecond
 )
 
 type Job func(ctx context.Context)
 
 type WorkerPoolConfig struct {
-	NumWorkers    int
-	SleepDuration time.Duration
+	NumWorkers         int
+	MaxQueueMultiplier int
+	SleepDuration      time.Duration
 }
 
 type workerPool struct {
@@ -36,28 +40,21 @@ type workerPool struct {
 func NewWorkerPool(workerPoolConfig *WorkerPoolConfig) WorkerPoolPort {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	numWorker := lo.Ternary(workerPoolConfig.NumWorkers > 0, workerPoolConfig.NumWorkers, defaultNumWorker)
 	workerPoolInstance := &workerPool{
-		numWorker:     defaultNumWorker,
-		sleepDuration: defaultSleepDuration * time.Millisecond,
-		jobQueue:      make(chan Job, 1*defaultNumWorker),
+		numWorker:     numWorker,
+		sleepDuration: lo.Ternary(workerPoolConfig.SleepDuration > 0, workerPoolConfig.SleepDuration, defaultSleepDuration),
 		ctx:           ctx,
 		cancel:        cancel,
 	}
 
-	workerPoolInstance.setWorkerPoolConfig(workerPoolConfig)
+	maxQueueMultiplier := lo.Ternary(workerPoolConfig.MaxQueueMultiplier > 0, workerPoolConfig.MaxQueueMultiplier, defaultMaxQueueMultiplier)
+	jobQueue := make(chan Job, numWorker*maxQueueMultiplier)
+
+	workerPoolInstance.jobQueue = jobQueue
 	workerPoolInstance.start()
 
 	return workerPoolInstance
-}
-
-func (w *workerPool) setWorkerPoolConfig(workerPoolConfig *WorkerPoolConfig) {
-	if workerPoolConfig.NumWorkers > 0 {
-		w.numWorker = workerPoolConfig.NumWorkers
-	}
-
-	if workerPoolConfig.SleepDuration > 0 {
-		w.sleepDuration = workerPoolConfig.SleepDuration
-	}
 }
 
 func (w *workerPool) start() {

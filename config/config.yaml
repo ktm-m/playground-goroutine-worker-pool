@@ -1,3 +1,4 @@
 workerPool:
-  numWorker: 2
+  numWorker: 10
+  maxQueueMultiplier: 10
   sleepDuration: 10
