@@ -1,0 +1,3 @@
+workerPool:
+  numWorker: 2
+  sleepDuration: 10
