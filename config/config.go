@@ -18,7 +18,8 @@ type WorkerPool struct {
 }
 
 func GetConfig() *Config {
-	viper.SetConfigFile("config.yaml")
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
 	viper.AddConfigPath("./config")
 
 	if err := viper.ReadInConfig(); err != nil {

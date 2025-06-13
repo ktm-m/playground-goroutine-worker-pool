@@ -2,7 +2,6 @@ package helper_test
 
 import (
 	"context"
-	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -10,57 +9,66 @@ import (
 	"github.com/ktm-m/playground-goroutine-worker-pool/helper"
 )
 
-func TestWorkerPool_SubmitJobAndGracefulShutdown(t *testing.T) {
-	var processedCount int32 = 0
-	numJobs := 50
-	numWorkers := 10
-
-	wp := helper.NewWorkerPool(&helper.WorkerPoolConfig{
-		NumWorkers:    numWorkers,
-		SleepDuration: 5 * time.Millisecond,
+func TestSubmitAndProcessJobs(t *testing.T) {
+	pool := helper.NewWorkerPool(&helper.WorkerPoolConfig{
+		NumWorkers:         5, // Small number for testing
+		MaxQueueMultiplier: 2,
 	})
 
+	var counter int32 = 0
+	numJobs := 20
+
+	// Submit jobs
 	for i := 0; i < numJobs; i++ {
-		jobNum := i
-		wp.SubmitJob(func(ctx context.Context) {
-			time.Sleep(10 * time.Millisecond) // simulate some work
-			fmt.Printf("Job %d done\n", jobNum)
-			atomic.AddInt32(&processedCount, 1)
+		pool.SubmitJob(func(ctx context.Context) {
+			atomic.AddInt32(&counter, 1)
+			time.Sleep(10 * time.Millisecond) // Simulate work
 		})
 	}
 
-	wp.GracefullyShutdown()
+	// Allow jobs to process
+	time.Sleep(500 * time.Millisecond)
+	pool.GracefullyShutdown()
 
-	if processedCount != int32(numJobs) {
-		t.Errorf("Expected %d jobs processed, but got %d", numJobs, processedCount)
+	if int(atomic.LoadInt32(&counter)) != numJobs {
+		t.Fatalf("Expected %d jobs to complete, but got %d", numJobs, counter)
 	}
+
+	t.Log("Expected jobs completed:", numJobs)
+	t.Log("Num jobs completed:", counter)
 }
 
-func TestWorkerPool_SubmitJob_WaitsWhenQueueIsFull(t *testing.T) {
-	wp := helper.NewWorkerPool(&helper.WorkerPoolConfig{
-		NumWorkers:    1, // worker เดียว
-		SleepDuration: 100 * time.Millisecond,
+func TestQueueFullRetry(t *testing.T) {
+	pool := helper.NewWorkerPool(&helper.WorkerPoolConfig{
+		NumWorkers:         1,
+		MaxQueueMultiplier: 1, // Very small queue (1 job)
+		SleepDuration:      10 * time.Millisecond,
 	})
 
-	// Job แรกใช้เวลานานเพื่อบล็อค queue
-	wp.SubmitJob(func(ctx context.Context) {
-		time.Sleep(500 * time.Millisecond)
+	// Create a slow job to fill the queue
+	slowJobDone := make(chan struct{})
+	pool.SubmitJob(func(ctx context.Context) {
+		time.Sleep(200 * time.Millisecond) // Block queue for a while
+		close(slowJobDone)
 	})
 
-	start := time.Now()
+	var jobsCompleted int32 = 0
 
-	// Job ที่สองจะเข้า queue ไม่ได้ทันที (queue size = 1, job แรกยังไม่เสร็จ)
-	wp.SubmitJob(func(ctx context.Context) {
-		// no-op
-	})
+	// Submit another job that will need to retry
+	go func() {
+		pool.SubmitJob(func(ctx context.Context) {
+			atomic.AddInt32(&jobsCompleted, 1)
+		})
+	}()
 
-	duration := time.Since(start)
+	// Wait for first job to finish
+	<-slowJobDone
 
-	if duration < 90*time.Millisecond {
-		t.Errorf("Expected SubmitJob to wait due to full queue, but it returned too quickly: %v", duration)
-	} else {
-		t.Logf("SubmitJob waited as expected: %v", duration)
+	// Allow second job to process
+	time.Sleep(100 * time.Millisecond)
+	pool.GracefullyShutdown()
+
+	if atomic.LoadInt32(&jobsCompleted) != 1 {
+		t.Fatal("Second job should have eventually completed after retrying")
 	}
-
-	wp.GracefullyShutdown()
 }

@@ -2,7 +2,7 @@ package helper
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -73,6 +73,7 @@ func (w *workerPool) workerLoop() {
 				defer w.wg.Done()
 				defer func() {
 					if r := recover(); r != nil {
+						log.Println("go routine is panic:", r)
 					}
 				}()
 				job(w.ctx)
@@ -92,14 +93,12 @@ func (w *workerPool) SubmitJob(job Job) {
 		case w.jobQueue <- job:
 			return
 		default:
-			fmt.Println("job queue is full, waiting to retry...")
 			time.Sleep(w.sleepDuration)
-			w.jobQueue <- job
 		}
 	}
 }
 
 func (w *workerPool) GracefullyShutdown() {
-	w.wg.Wait()
 	w.cancel()
+	w.wg.Wait()
 }
